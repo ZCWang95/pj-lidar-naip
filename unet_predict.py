@@ -41,23 +41,21 @@ def save_prediction_as_tif(prediction, reference_file, output_file):
 # Prediction Function
 # ------------------------------------------
 
-def make_predictions(model, test_dir, pred_dir):
+def make_predictions(model, tile_file_paths: list[str], pred_dir: str):
     """
     Makes canopy height predictions using trained U-Net model.
 
     Args:
         model (tf.keras.Model): Trained U-Net model.
-        test_dir (str): Directory of input NAIP image chips.
+        tile_file_paths (list[str]): List of paths to input image tiles.
         pred_dir (str): Directory to save output canopy height predictions.
     """
     
-    # List and loop through test NAIP image files
-    test_files = [x for x in sorted(os.listdir(test_dir)) if x.endswith(".tif")]
-    for test_file in test_files:
-        test_path = os.path.join(test_dir, test_file)
+    os.makedirs(pred_dir, exist_ok=True)
 
+    for tile_path in tile_file_paths:
         # Load and preprocess NAIP image
-        with rasterio.open(test_path) as naip:
+        with rasterio.open(tile_path) as naip:
             naip_data = naip.read()
             naip_data = np.transpose(naip_data, (1, 2, 0))  # Convert to HWC
             naip_data = naip_data / 255.0  # Normalize
@@ -67,8 +65,9 @@ def make_predictions(model, test_dir, pred_dir):
         prediction = model.predict(naip_data[np.newaxis, ...])
 
         # Save output as TIF
-        out_file = test_path.replace(test_dir, pred_dir)
-        save_prediction_as_tif(prediction, test_path, out_file)
+        base_filename = os.path.basename(tile_path)
+        out_file = os.path.join(pred_dir, f"pred_{base_filename}")
+        save_prediction_as_tif(prediction, tile_path, out_file)
 
 
 # ------------------------------------------
@@ -116,15 +115,36 @@ def mosaic_tiles(pred_dir):
 # ------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
 
-    # Define parameters
-    test_dir = "G:\\pj_cnn_naip\\data\\test\\naip"
-    pred_dir = "G:\\pj_cnn_naip\\modeling\\predictions"
-    model_file = "S:\\ursa\\campbell\\pj_cnn_naip\\modeling\\unet_model_v2.h5"
+    parser = argparse.ArgumentParser(description="Make predictions with U-Net model and mosaic tiles.")
+    parser.add_argument("--model_file", required=True, help="Path to the U-Net model (.h5 file).")
+    parser.add_argument("--input_dir", help="Directory containing input image chips (e.g., .tif files). Used if not providing explicit tile paths to a tiler script.")
+    parser.add_argument("--output_dir", required=True, help="Directory to save output predictions and mosaics.")
 
-    # Make predictions on test NAIP image chips
-    model = load_model(model_file)
-    make_predictions(test_dir, pred_dir)
+    args = parser.parse_args()
 
-    # Mosaic tiled predictions
-    mosaic_tiles(pred_dir)
+    model = load_model(args.model_file)
+
+    # If an input_dir is provided, list .tif files and run predictions
+    # This maintains compatibility with the original script's behavior
+    # when not used as part of the larger tiling workflow.
+    if args.input_dir:
+        if not os.path.isdir(args.input_dir):
+            print(f"Error: Input directory '{args.input_dir}' not found.")
+        else:
+            tile_files = [os.path.join(args.input_dir, f) for f in os.listdir(args.input_dir) if f.endswith(".tif")]
+            if not tile_files:
+                print(f"No .tif files found in {args.input_dir}")
+            else:
+                make_predictions(model, tile_files, args.output_dir)
+                # Mosaic tiled predictions if predictions were made
+                mosaic_tiles(args.output_dir)
+    else:
+        print("No input_dir provided. The script expects 'make_predictions' to be called by another script (e.g., a tiling script) with a list of tile paths.")
+        # Example of how it might be called by a tiling script (commented out):
+        # geotiff_tiler_output_paths = ["path/to/tile1.tif", "path/to/tile2.tif"] 
+        # make_predictions(model, geotiff_tiler_output_paths, args.output_dir)
+        # mosaic_tiles(args.output_dir) # Mosaic after predictions
+
+    print(f"{ctime()} All done")

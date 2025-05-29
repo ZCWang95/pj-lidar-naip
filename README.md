@@ -86,3 +86,27 @@ To train a model, you will need to edit the main block within the script to suit
 To make per-pixel canopy height predictions based on NAIP image data, you have two options: (1) use the existing model created in this study [unet_model.h5](models/unet_model.h5); or (2) use a model you trained with [unet_train.py](unet_train.py). In either case, you will need to define the directory where your test data are stored (or some other directory of NAIP imagery, tiled into 256x256 pixel chips) (`test_dir`), the directory where to intend to store the canopy height predictions (`pred_dir`), and the HDF5 U-Net model file (`model_file`).
 
 In its current form, the script performs a tile mosaicking procedure using `arcpy`. Given that `arcpy` is not open-source, and given that the `mosaic_tiles()` function is catered very specifically to the file naming convention used in our study, you may opt to use your own mosaicking procedure and simply eliminate the `mosaic_tiles()` function from the main block.
+
+### 3. Predicting for a Large Area of Interest (AOI) with `predict_aoi.py`
+
+The `predict_aoi.py` script provides an end-to-end workflow for processing a large GeoTIFF file representing an Area of Interest (AOI). It automates the process of tiling the large GeoTIFF, running predictions on each tile using a trained U-Net model, and then mosaicking the predicted tiles back into a final raster for the AOI.
+
+This script leverages `geotiff_tiler.py` for the tiling operation and `unet_predict.py` for making predictions and mosaicking.
+
+**Usage Example:**
+
+```bash
+python predict_aoi.py --input-geotiff path/to/your/large_aoi.tif \
+                      --output-dir path/to/output_directory \
+                      --model-path path/to/your/unet_model.h5 \
+                      --tile-size 256
+```
+
+**Command-Line Arguments:**
+
+*   `--input-geotiff`: Path to the input GeoTIFF file for the AOI. (Required)
+*   `--output-dir`: Base directory where all outputs will be saved. This includes a subdirectory for temporary tiles (if not specified otherwise), a subdirectory for individual predicted tiles (`predicted_tiles`), and a subdirectory within that for the final mosaics (`predicted_tiles/mosaics`). (Required)
+*   `--model-path`: Path to the trained U-Net model file (e.g., `.h5` format). (Required)
+*   `--tile-size`: The dimension (in pixels) of the square tiles to be created from the input GeoTIFF. For example, `256` will create 256x256 pixel tiles. (Required)
+*   `--temp-dir` (optional): Specify a custom directory for storing temporary intermediate tile files (both the initial tiles from the large GeoTIFF and the predicted tiles). If not provided, a subdirectory named `temp_input_tiles` will be created within the `--output-dir`.
+*   `--keep-temp-files` (optional): If this flag is included, the script will not delete temporary intermediate files (i.e., the individual input tiles and the individual predicted tiles) after the process is complete. This can be useful for debugging or if these intermediate files are needed for other purposes.
