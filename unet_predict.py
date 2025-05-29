@@ -1,10 +1,9 @@
 import os
 import numpy as np
 import rasterio
+from rasterio.merge import merge as rasterio_merge
 from tensorflow.keras.models import load_model
 from time import ctime
-import arcpy
-from arcpy import env
 
 # ------------------------------------------
 # TIF Saver Function
@@ -71,44 +70,66 @@ def make_predictions(model, tile_file_paths: list[str], pred_dir: str):
 
 
 # ------------------------------------------
-# Mosaic Tiles Function
+# Mosaic Tiles Function (with Rasterio)
 # ------------------------------------------
 
-def mosaic_tiles(pred_dir):
-    """
-    Mosaics predicted tiles into area-wide rasters using ArcPy.
+def mosaic_tiles_with_rasterio(predicted_tile_dir: str, output_mosaic_file: str):
+    '''
+    Mosaics predicted tiles from a directory into a single GeoTIFF file using Rasterio.
 
     Args:
-        pred_dir (str): Directory containing predicted TIF files.
-    """
+        predicted_tile_dir (str): Directory containing the predicted GeoTIFF tile files.
+        output_mosaic_file (str): Path to save the final mosaicked GeoTIFF.
+    '''
+    print(f"{ctime()} Starting rasterio mosaicking...")
+
+    tile_files = [os.path.join(predicted_tile_dir, f) for f in os.listdir(predicted_tile_dir) if f.endswith('.tif')]
+
+    if not tile_files:
+        print(f"No .tif files found in {predicted_tile_dir} to mosaic.")
+        return
+
+    sources = []
+    for tif_path in tile_files:
+        try:
+            sources.append(rasterio.open(tif_path))
+        except rasterio.errors.RasterioIOError as e:
+            print(f"Warning: Could not open {tif_path}. Skipping. Error: {e}")
+            continue
     
-    # All overwrites
-    env.overwriteOutput = True
+    if not sources:
+        print(f"No valid .tif files could be opened in {predicted_tile_dir}. Mosaicking aborted.")
+        return
 
-    # Output directory
-    mosaic_dir = os.path.join(pred_dir, "mosaics")
-    os.makedirs(mosaic_dir, exist_ok=True)
+    print(f"Mosaicking {len(sources)} tiles from {predicted_tile_dir} into {output_mosaic_file}")
 
-    # Extract unique area identifiers from filenames and loop through them
-    tifs = [x for x in os.listdir(pred_dir) if x.endswith(".tif")]
-    areas = sorted(set("_".join(x.split("_")[1:3]) for x in tifs))
-    for i, area in enumerate(areas):
+    mosaic, out_trans = rasterio_merge(sources)
+    
+    # Copy metadata from one of the source files and update for the mosaic
+    out_meta = sources[0].meta.copy()
+    out_meta.update({
+        "driver": "GTiff",
+        "height": mosaic.shape[1],
+        "width": mosaic.shape[2],
+        "transform": out_trans,
+        "crs": sources[0].crs, # Assume all tiles have the same CRS
+        "dtype": mosaic.dtype, # Use dtype from merged array
+        "count": mosaic.shape[0], # Number of bands from merged array
+        "compress": "lzw"      # Apply LZW compression
+    })
 
-        # Print status
-        print(f"{ctime()} {area} ({i + 1}/{len(areas)})")
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_mosaic_file), exist_ok=True)
 
-        # Get TIFs for this area
-        area_tifs = [os.path.join(pred_dir, x) for x in tifs if area in x]
+    # Write the mosaic to disk
+    with rasterio.open(output_mosaic_file, "w", **out_meta) as dest:
+        dest.write(mosaic)
 
-        # Mosaic them
-        arcpy.management.MosaicToNewRaster(
-            input_rasters=area_tifs,
-            output_location=mosaic_dir,
-            raster_dataset_name_with_extension=f"chm_pred_{area}.tif",
-            pixel_type="32_BIT_FLOAT",
-            number_of_bands=1,
-            mosaic_method="BLEND"
-        )
+    # Close all source datasets
+    for src in sources:
+        src.close()
+    
+    print(f"{ctime()} Mosaicking complete. Output saved to {output_mosaic_file}")
 
 # ------------------------------------------
 # Main Block
@@ -137,14 +158,20 @@ if __name__ == "__main__":
             if not tile_files:
                 print(f"No .tif files found in {args.input_dir}")
             else:
+                # When run directly, predictions are saved in output_dir.
+                # The mosaic will also be saved in output_dir.
                 make_predictions(model, tile_files, args.output_dir)
-                # Mosaic tiled predictions if predictions were made
-                mosaic_tiles(args.output_dir)
+                
+                # Define path for the output mosaic when script is run directly
+                output_mosaic_path = os.path.join(args.output_dir, "mosaic_from_input_dir.tif")
+                mosaic_tiles_with_rasterio(args.output_dir, output_mosaic_path)
     else:
         print("No input_dir provided. The script expects 'make_predictions' to be called by another script (e.g., a tiling script) with a list of tile paths.")
-        # Example of how it might be called by a tiling script (commented out):
-        # geotiff_tiler_output_paths = ["path/to/tile1.tif", "path/to/tile2.tif"] 
-        # make_predictions(model, geotiff_tiler_output_paths, args.output_dir)
-        # mosaic_tiles(args.output_dir) # Mosaic after predictions
+        print("If called by another script, 'mosaic_tiles_with_rasterio' should also be called by that script with appropriate paths.")
+        # Example of how it might be called by predict_aoi.py (which is already implemented):
+        # pred_tile_dir = "path/to/predicted_tiles"
+        # final_mosaic_file = "path/to/final_aoi_mosaic.tif"
+        # make_predictions(model, list_of_input_tile_paths, pred_tile_dir)
+        # mosaic_tiles_with_rasterio(pred_tile_dir, final_mosaic_file)
 
     print(f"{ctime()} All done")

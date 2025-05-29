@@ -6,7 +6,7 @@ import glob # For finding files
 
 # Custom module imports
 from geotiff_tiler import create_tiles
-from unet_predict import make_predictions, mosaic_tiles
+from unet_predict import make_predictions, mosaic_tiles_with_rasterio # Updated import
 
 def main():
     parser = argparse.ArgumentParser(description="Process a large GeoTIFF: tile, predict, and mosaic.")
@@ -56,38 +56,41 @@ def main():
     print("Prediction complete.")
 
     # --- 7. Mosaic predicted tiles ---
-    # The mosaic_tiles function saves its output in a 'mosaics' subdirectory within the predicted_tiles_dir
     print("Mosaicking started...")
-    mosaic_tiles(predicted_tiles_dir) 
-    print("Mosaicking complete.")
+    # Define the output path for the final mosaic, placing it directly in the output_dir
+    # For a more unique name, you could use:
+    # aoi_name = os.path.splitext(os.path.basename(args.input_geotiff))[0]
+    # final_mosaic_filename = f"{aoi_name}_mosaic.tif"
+    final_mosaic_filename = "final_aoi_mosaic.tif" 
+    final_mosaic_path = os.path.join(args.output_dir, final_mosaic_filename)
     
-    final_mosaic_dir = os.path.join(predicted_tiles_dir, "mosaics")
-    print(f"Final mosaics are located in: {final_mosaic_dir}")
-
+    mosaic_tiles_with_rasterio(predicted_tiles_dir, final_mosaic_path)
+    print("Mosaicking complete.")
+    print(f"Final mosaic saved to: {final_mosaic_path}")
 
     # --- 8. Cleanup ---
     if not args.keep_temp_files:
         print("Cleaning up temporary files...")
         
         # Delete temporary input tiles directory
-        try:
-            shutil.rmtree(temp_input_tiles_dir)
-            print(f"Removed temporary input tiles directory: {temp_input_tiles_dir}")
-        except OSError as e:
-            print(f"Error removing {temp_input_tiles_dir}: {e.strerror}")
-
-        # Delete individual predicted tile files (not the 'mosaics' subdirectory)
-        individual_predicted_files = glob.glob(os.path.join(predicted_tiles_dir, "*.tif"))
-        for f_path in individual_predicted_files:
+        if os.path.exists(temp_input_tiles_dir):
             try:
-                os.remove(f_path)
-                print(f"Removed predicted tile: {f_path}")
+                shutil.rmtree(temp_input_tiles_dir)
+                print(f"Removed temporary input tiles directory: {temp_input_tiles_dir}")
             except OSError as e:
-                print(f"Error removing {f_path}: {e.strerror}")
+                print(f"Error removing {temp_input_tiles_dir}: {e.strerror}")
+        
+        # Delete the directory containing individual predicted tiles (now redundant)
+        if os.path.exists(predicted_tiles_dir):
+            try:
+                shutil.rmtree(predicted_tiles_dir)
+                print(f"Removed predicted tiles directory: {predicted_tiles_dir}")
+            except OSError as e:
+                print(f"Error removing {predicted_tiles_dir}: {e.strerror}")
         
         print("Cleanup complete.")
     else:
-        print("Temporary files will be kept as per --keep-temp-files flag.")
+        print("Temporary files (input tiles and predicted tiles) will be kept as per --keep-temp-files flag.")
 
     print("Process complete.")
 

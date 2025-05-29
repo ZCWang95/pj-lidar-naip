@@ -55,7 +55,6 @@ The predictions and observations for an example test area can be seen below:
 - `tensorflow 2.7.0`
 - `tensorflow_addons 0.15.0`
 - `tensorflow_gpu 2.7.0`
-- `arcpy 3.2.0`
 
 ### 1. Data preparation
 
@@ -83,9 +82,9 @@ To train a model, you will need to edit the main block within the script to suit
 
 ### 2. Making predictions with the U-Net model [unet_predict.py](unet_predict.py)
 
-To make per-pixel canopy height predictions based on NAIP image data, you have two options: (1) use the existing model created in this study [unet_model.h5](models/unet_model.h5); or (2) use a model you trained with [unet_train.py](unet_train.py). In either case, you will need to define the directory where your test data are stored (or some other directory of NAIP imagery, tiled into 256x256 pixel chips) (`test_dir`), the directory where to intend to store the canopy height predictions (`pred_dir`), and the HDF5 U-Net model file (`model_file`).
+To make per-pixel canopy height predictions based on NAIP image data, you have two options: (1) use the existing model created in this study [unet_model.h5](models/unet_model.h5); or (2) use a model you trained with [unet_train.py](unet_train.py). In either case, you will need to define the directory where your test data are stored (or some other directory of NAIP imagery, tiled into 256x256 pixel chips) using the `--input_dir` argument, the directory where you intend to store the canopy height predictions (`--output_dir`), and the HDF5 U-Net model file (`--model_file`).
 
-In its current form, the script performs a tile mosaicking procedure using `arcpy`. Given that `arcpy` is not open-source, and given that the `mosaic_tiles()` function is catered very specifically to the file naming convention used in our study, you may opt to use your own mosaicking procedure and simply eliminate the `mosaic_tiles()` function from the main block.
+The script can also perform tile mosaicking using the `mosaic_tiles_with_rasterio` function, which leverages `rasterio` for cross-platform compatibility. If you run `unet_predict.py` directly with an `--input_dir`, it will attempt to mosaic the output predicted tiles into a file named `mosaic_from_input_dir.tif` within your specified `--output_dir`. The `predict_aoi.py` script also uses this function for its final mosaicking step.
 
 ### 3. Predicting for a Large Area of Interest (AOI) with `predict_aoi.py`
 
@@ -105,8 +104,8 @@ python predict_aoi.py --input-geotiff path/to/your/large_aoi.tif \
 **Command-Line Arguments:**
 
 *   `--input-geotiff`: Path to the input GeoTIFF file for the AOI. (Required)
-*   `--output-dir`: Base directory where all outputs will be saved. This includes a subdirectory for temporary tiles (if not specified otherwise), a subdirectory for individual predicted tiles (`predicted_tiles`), and a subdirectory within that for the final mosaics (`predicted_tiles/mosaics`). (Required)
+*   `--output-dir`: Base directory where all outputs will be saved. For `predict_aoi.py`, this includes the final mosaic (e.g., `final_aoi_mosaic.tif`) and potentially temporary subdirectories for intermediate tiles. (Required)
 *   `--model-path`: Path to the trained U-Net model file (e.g., `.h5` format). (Required)
 *   `--tile-size`: The dimension (in pixels) of the square tiles to be created from the input GeoTIFF. For example, `256` will create 256x256 pixel tiles. (Required)
-*   `--temp-dir` (optional): Specify a custom directory for storing temporary intermediate tile files (both the initial tiles from the large GeoTIFF and the predicted tiles). If not provided, a subdirectory named `temp_input_tiles` will be created within the `--output-dir`.
+*   `--temp-dir` (optional): Specify a custom directory for storing temporary intermediate tile files. If not provided by `predict_aoi.py`, a subdirectory named `temp_input_tiles` will be created within the `--output-dir` for the initial tiles, and `predicted_tiles` for the predicted tiles before mosaicking.
 *   `--keep-temp-files` (optional): If this flag is included, the script will not delete temporary intermediate files (i.e., the individual input tiles and the individual predicted tiles) after the process is complete. This can be useful for debugging or if these intermediate files are needed for other purposes.
